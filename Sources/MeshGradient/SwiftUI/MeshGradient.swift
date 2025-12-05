@@ -104,61 +104,68 @@ public struct MeshGradient: UIViewRepresentable {
 import AppKit
 
 public struct MeshGradient: NSViewRepresentable {
-	
-	private let state: MeshGradientState
-	private let subdivisions: Int
-	private let grainAlpha: Float
+    
+    private let state: MeshGradientState
+    private let subdivisions: Int
+    private let grainAlpha: Float
     private let resolutionScale: CGFloat
-	
-	public init(initialGrid: MeshGradientGrid<ControlPoint>,
-				animatorConfiguration: MeshAnimator.Configuration,
-				grainAlpha: Float = MeshGradientDefaults.grainAlpha,
-				subdivisions: Int = MeshGradientDefaults.subdivisions,
-				resolutionScale: CGFloat = 1.0) {
-		self.state = .animated(initial: initialGrid, animatorConfiguration: animatorConfiguration)
-		self.grainAlpha = grainAlpha
-		self.subdivisions = subdivisions
+    
+    public init(initialGrid: MeshGradientGrid<ControlPoint>,
+                animatorConfiguration: MeshAnimator.Configuration,
+                grainAlpha: Float = MeshGradientDefaults.grainAlpha,
+                subdivisions: Int = MeshGradientDefaults.subdivisions,
+                resolutionScale: CGFloat = 0.4) {
+        self.state = .animated(initial: initialGrid, animatorConfiguration: animatorConfiguration)
+        self.grainAlpha = grainAlpha
+        self.subdivisions = subdivisions
         self.resolutionScale = resolutionScale
-	}
+    }
 
     public init(grid: MeshGradientGrid<ControlPoint>,
                 grainAlpha: Float = MeshGradientDefaults.grainAlpha,
                 subdivisions: Int = MeshGradientDefaults.subdivisions,
-                resolutionScale: CGFloat = 1.0) {
+                resolutionScale: CGFloat = 0.4) {
         self.state = .static(grid: grid)
         self.grainAlpha = grainAlpha
         self.subdivisions = subdivisions
         self.resolutionScale = resolutionScale
     }
-	
-	public func makeNSView(context: Context) -> MTKView {
-		let view = MTKView(frame: .zero, device: MTLCreateSystemDefaultDevice())
-		context.coordinator.renderer = .init(metalKitView: view, meshDataProvider: createDataProvider(), grainAlpha: grainAlpha, subdivisions: subdivisions)
-		
-		switch state {
-		case .animated(_, let configuration):
-			view.isPaused = false
-			view.enableSetNeedsDisplay = false
+    
+    public func makeNSView(context: Context) -> MTKView {
+        let view = MTKView(frame: .zero, device: MTLCreateSystemDefaultDevice())
+        context.coordinator.renderer = .init(metalKitView: view, meshDataProvider: createDataProvider(), grainAlpha: grainAlpha, subdivisions: subdivisions)
+        
+        switch state {
+        case .animated(_, let configuration):
+            view.isPaused = false
+            view.enableSetNeedsDisplay = false
             view.preferredFramesPerSecond = configuration.framesPerSecond
-		case .static:
-			view.isPaused = true
-			view.enableSetNeedsDisplay = true
+        case .static:
+            view.isPaused = true
+            view.enableSetNeedsDisplay = true
             view.preferredFramesPerSecond = 60
-		}
-		
-		view.delegate = context.coordinator.renderer
-		return view
-	}
-	
-	private func createDataProvider() -> MeshDataProvider {
-		switch state {
-		case .animated(let initial, let animatorConfiguration):
-			return MeshAnimator(grid: initial, configuration: animatorConfiguration)
-		case .static(let grid):
-			return StaticMeshDataProvider(grid: grid)
-		}
-	}
-	
+        }
+        
+        let maxDimension: CGFloat = 1024
+        let initialSize = CGSize(
+            width: min(view.frame.size.width * resolutionScale, maxDimension),
+            height: min(view.frame.size.height * resolutionScale, maxDimension)
+        )
+        view.drawableSize = initialSize
+        
+        view.delegate = context.coordinator.renderer
+        return view
+    }
+    
+    private func createDataProvider() -> MeshDataProvider {
+        switch state {
+        case .animated(let initial, let animatorConfiguration):
+            return MeshAnimator(grid: initial, configuration: animatorConfiguration)
+        case .static(let grid):
+            return StaticMeshDataProvider(grid: grid)
+        }
+    }
+    
     public func updateNSView(_ view: MTKView, context: Context) {
         switch state {
         case .animated(_, let animatorConfiguration):
@@ -175,25 +182,30 @@ public struct MeshGradient: NSViewRepresentable {
             view.setNeedsDisplay(view.bounds)
         }
         
-        DispatchQueue.main.async {
-            view.drawableSize = CGSize(
-                width: view.frame.size.width * resolutionScale,
-                height: view.frame.size.height * resolutionScale
-            )
+        let maxDimension: CGFloat = 1024
+        let targetSize = CGSize(
+            width: min(view.frame.size.width * resolutionScale, maxDimension),
+            height: min(view.frame.size.height * resolutionScale, maxDimension)
+        )
+        
+        if view.drawableSize != targetSize {
+            DispatchQueue.main.async {
+                view.drawableSize = targetSize
+                context.coordinator.renderer.mtkView(view, drawableSizeWillChange: targetSize)
+            }
         }
         
-        context.coordinator.renderer.mtkView(view, drawableSizeWillChange: view.drawableSize)
         context.coordinator.renderer.subdivisions = subdivisions
     }
-	
-	public func makeCoordinator() -> Coordinator {
-		return .init()
-	}
-	
-	public final class Coordinator {
-		var renderer: MetalMeshRenderer!
-	}
-	
+    
+    public func makeCoordinator() -> Coordinator {
+        return .init()
+    }
+    
+    public final class Coordinator {
+        var renderer: MetalMeshRenderer!
+    }
+    
 }
 
 #endif // canImport(AppKit)
